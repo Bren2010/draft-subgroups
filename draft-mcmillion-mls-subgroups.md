@@ -25,6 +25,11 @@ author:
     email: "brendanmcmillion@gmail.com"
 
 normative:
+  NIST:
+    target: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-38G.pdf
+    title: "Recommendation for Block Cipher Modes of Operation: Methods for Format-Preserving Encryption"
+    author:
+      - name: Morris Dworkin
 
 informative:
 
@@ -71,10 +76,29 @@ User:
 Subgroup:
 : An MLS group whose membership is exactly the set of authorized devices of a single user.
 
+Virtual Client:
+: An MLS client that is controlled by one of many devices and synchronized by a subgroup.
 
-# Secret Tree
+Supergroup:
+: Refers to any MLS group which is not a subgroup.
 
-The Subgroups protocol uses a Secret Tree similar to {{RFC9420}}. The root of
+# Generation of Private Keys
+
+When devices generate new asymmetric keypairs for a virtual client (such as a
+KeyPackage `init_key` or LeafNode `encryption_key`), they must do so in a way
+that the other devices participating in the subgroup can compute the private key
+as well. In the Subgroups protocol, a virtual client's private keys are derived
+deterministically from a secret exported from the most recent epoch in a
+subgroup. An extension is added to KeyPackages and LeafNodes generated this way
+to communicate to the other devices, which may not become aware of the keypair
+for several epochs, the epoch the private key was generated from.
+
+Note that signature private keys are not generated this way. A virtual client's
+signature private key is generated once and shared directly with new devices.
+
+## Secret Tree
+
+The Subgroups protocol uses a Secret Tree similar to {{!RFC9420}}. The root of
 the Secret Tree is an exported secret from a given epoch of a subgroup:
 
 ~~~
@@ -95,12 +119,79 @@ tree_node_[N]_secret
 ~~~
 
 The Secret Tree maps bit strings to a value of size `KDF.Nh`. The root,
-`subgroup_secret_tree_root`, is the value associated with the empty bit string
-"". The left child is the value associated with the bit string "0", while the
-right child is the value associated with the bit string "1", and so on
-recursively.
+`subgroup_secret_tree_root`, is the value associated with the empty bit string.
+The left child is the value associated with the bit string "0", while the right
+child is the value associated with the bit string "1", and so on recursively.
+
+Devices follow a strict deletion schedule, and delete any node as soon as:
+
+- its left and right children have been computed, or
+- a private key has been derived from the node.
+
+This ensures that any private keys that are derived from the Secret Tree can be
+deleted and won't be able to be re-derived, providing Forward Secrecy.
+
+## Private Keys
+
+Devices will need to generate either an `init_key` for a KeyPackage, or an
+`encryption_key` for a LeafNode. To do this, the device finds its leaf index in
+the subgroup `leaf_index`, chooses a random 32-bit number `random`, converts
+both to a series of bits, and concatenates them to get a series of 64 bits:
+`leaf_index || random`. This series of bits is used to lookup a node in the
+Secret Tree, `tree_node_secret`.
+
+For a KeyPackage `init_key`, the device computes:
+
+~~~
+init_secret = DeriveSecret(tree_node_secret, "Subgroup KeyPackage")
+init_priv, init_pub = KEM.DeriveKeyPair(init_secret)
+~~~
+
+For a LeafNode `encryption_key`, the device computes:
+
+~~~
+leaf_secret = DeriveSecret(tree_node_secret, "Subgroup LeafNode")
+~~~
+
+`leaf_node_secret` and `leaf_priv` are then derived from `leaf_secret` according
+to {{!RFC9420}}.
+
+Individual devices MUST take care to avoid reusing `random` values.
+
+## Subgroup Extension
+
+As mentioned, devices may not always be immediately aware of when another device
+has generated a private key. This means that devices must have a way to
+communicate to each other the information they used to derive a private key. The
+`subgroup` extension in a KeyPackage or LeafNode provides this information:
+
+~~~
+struct {
+  uint64 epoch;
+  uint32 leaf_index;
+  uint32 random;
+} PrivateKeyInfo;
+
+opaque subgroup<V>;
+~~~
+
+The extension is a byte string containing a `PrivateKeyInfo` struct, which has
+been encrypted with the AEAD from the subgroup's ciphersuite:
+
+~~~
+nonce is sampled at random
+subgroup = nonce || AEAD.Seal(key, nonce, "", PrivateKeyInfo)
+~~~
 
 # Small-Space PRP
+
+A small-space pseudorandom permutation (PRP) is a cryptographic algorithm that
+works similar to a block cipher, while also being able to adhere to format
+constraints. In particular, it is able to create psuedorandom permutations over
+a smaller input and output space.
+
+This document uses the FF1 mode from {{NIST}} over the input/output space of
+32-bit integers.
 
 # Security Considerations
 
@@ -111,6 +202,8 @@ TODO Security
 
 This document has no IANA actions.
 
+- Label "Subgroup Secret Tree", "Subgroup KeyPackage", "Subgroup LeafNode"
+- Extension "subgroup"
 
 --- back
 
