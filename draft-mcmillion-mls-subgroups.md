@@ -2,7 +2,7 @@
 title: "MLS Subgroups"
 category: info
 
-docname: draft-todo-yourname-protocol-latest
+docname: draft-mcmillion-mls-subgroups-latest
 submissiontype: IETF
 number:
 date:
@@ -24,9 +24,9 @@ venue:
 
 author:
  -
-    fullname: Your Name Here
+    fullname: "Brendan McMillion"
     organization: Your Organization Here
-    email: your.email@example.com
+    email: "brendanmcmillion@gmail.com"
 
 normative:
 
