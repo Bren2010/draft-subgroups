@@ -1,0 +1,280 @@
+
+
+
+
+Messaging Layer Security                                    B. McMillion
+Internet-Draft                                             10 March 2024
+Intended status: Informational                                          
+Expires: 11 September 2024
+
+
+                             MLS Subgroups
+                  draft-mcmillion-mls-subgroups-latest
+
+Abstract
+
+   This document describes how the user of an MLS-based messaging
+   service can synchronize the operation of its devices, such that they
+   behave as a single virtual MLS client.  This prevents other users of
+   the messaging service from being able to tell when a user changes its
+   set of authorized devices, or which device the user sent a message
+   from.
+
+About This Document
+
+   This note is to be removed before publishing as an RFC.
+
+   The latest revision of this draft can be found at
+   https://Bren2010.github.io/draft-subgroups/draft-mcmillion-mls-
+   subgroups.html.  Status information for this document may be found at
+   https://datatracker.ietf.org/doc/draft-mcmillion-mls-subgroups/.
+
+   Discussion of this document takes place on the Messaging Layer
+   Security Working Group mailing list (mailto:mls@ietf.org), which is
+   archived at https://mailarchive.ietf.org/arch/browse/mls/.  Subscribe
+   at https://www.ietf.org/mailman/listinfo/mls/.
+
+   Source for this draft and an issue tracker can be found at
+   https://github.com/Bren2010/draft-subgroups.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 11 September 2024.
+
+Copyright Notice
+
+   Copyright (c) 2024 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Conventions and Definitions
+   3.  Generation of Private Keys
+     3.1.  Secret Tree
+     3.2.  Private Keys
+     3.3.  Subgroup Extension
+   4.  Small-Space PRP
+   5.  Security Considerations
+   6.  IANA Considerations
+   7.  Normative References
+   Acknowledgments
+   Author's Address
+
+1.  Introduction
+
+   MLS allows users to communicate in an end-to-end encrypted fashion
+   but doesn't describe how to synchronize the operation of a user's
+   devices.  Instead, applications are generally expected to create
+   distinct MLS clients for each device that a user has, and to ensure
+   that all of the user's devices are added or removed from a group
+   atomically.  This creates some technical difficulties, as it can be
+   hard for other members to ensure that the group truly stays in-sync
+   with each user's set of authorized devices.  It also creates a
+   privacy issue because the members of a group can see which device a
+   user sent a given message from, or when any user changes its set of
+   authorized devices.
+
+   This document describes how to use an MLS group between all of a
+   user's authorized devices to synchronize behavior, such that other
+   users of the messaging service only see the user as a single MLS
+   client.  It does this in a way that preserves the Forward Secrecy and
+   Post-Compromise Security guarantees of the groups that the user
+   participates in, without requiring changes to the wire format of MLS.
+
+2.  Conventions and Definitions
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   Device:  A user interface for messaging, performing encryption as
+      needed.
+
+   User:  A (normally) human operator of a device.
+
+   Subgroup:  An MLS group whose membership is exactly the set of
+      authorized devices of a single user.
+
+   Virtual Client:  An MLS client that is controlled by one of many
+      devices and synchronized by a subgroup.
+
+   Supergroup:  Refers to any MLS group which is not a subgroup.
+
+3.  Generation of Private Keys
+
+   When devices generate new asymmetric keypairs for a virtual client
+   (such as a KeyPackage init_key or LeafNode encryption_key), they must
+   do so in a way that the other devices participating in the subgroup
+   can compute the private key as well.  In the Subgroups protocol, a
+   virtual client's private keys are derived deterministically from a
+   secret exported from the most recent epoch in a subgroup.  An
+   extension is added to KeyPackages and LeafNodes generated this way to
+   communicate to the other devices, which may not become aware of the
+   keypair for several epochs, the epoch the private key was generated
+   from.
+
+   Note that signature private keys are not generated this way.  A
+   virtual client's signature private key is generated once and shared
+   directly with new devices.
+
+3.1.  Secret Tree
+
+   The Subgroups protocol uses a Secret Tree similar to [RFC9420].  The
+   root of the Secret Tree is an exported secret from a given epoch of a
+   subgroup:
+
+subgroup_secret_tree_root = MLS-Exporter("Subgroup Secret Tree", "", KDF.Nh)
+
+   The left and right child of a node in the Secret Tree are computed as
+   follows:
+
+   tree_node_[N]_secret
+           |
+           |
+           +--> ExpandWithLabel(., "tree", "left", KDF.Nh)
+           |    = tree_node_[left(N)]_secret
+           |
+           +--> ExpandWithLabel(., "tree", "right", KDF.Nh)
+                = tree_node_[right(N)]_secret
+
+   The Secret Tree maps bit strings to a value of size KDF.Nh.  The
+   root, subgroup_secret_tree_root, is the value associated with the
+   empty bit string.  The left child is the value associated with the
+   bit string "0", while the right child is the value associated with
+   the bit string "1", and so on recursively.
+
+   Devices follow a strict deletion schedule, and delete any node as
+   soon as:
+
+   *  its left and right children have been computed, or
+
+   *  a private key has been derived from the node.
+
+   This ensures that any private keys that are derived from the Secret
+   Tree can be deleted and won't be able to be re-derived, providing
+   Forward Secrecy.
+
+3.2.  Private Keys
+
+   Devices will need to generate either an init_key for a KeyPackage, or
+   an encryption_key for a LeafNode.  To do this, the device finds its
+   leaf index in the subgroup leaf_index, chooses a random 32-bit number
+   random, converts both to a series of bits, and concatenates them to
+   get a series of 64 bits: leaf_index || random.  This series of bits
+   is used to lookup a node in the Secret Tree, tree_node_secret.
+
+   For a KeyPackage init_key, the device computes:
+
+   init_secret = DeriveSecret(tree_node_secret, "Subgroup KeyPackage")
+   init_priv, init_pub = KEM.DeriveKeyPair(init_secret)
+
+   For a LeafNode encryption_key, the device computes:
+
+   leaf_secret = DeriveSecret(tree_node_secret, "Subgroup LeafNode")
+
+   leaf_node_secret and leaf_priv are then derived from leaf_secret
+   according to [RFC9420].
+
+   Individual devices MUST take care to avoid reusing random values.
+
+3.3.  Subgroup Extension
+
+   As mentioned, devices may not always be immediately aware of when
+   another device has generated a private key.  This means that devices
+   must have a way to communicate to each other the information they
+   used to derive a private key.  The subgroup extension in a KeyPackage
+   or LeafNode provides this information:
+
+   struct {
+     uint64 epoch;
+     uint32 leaf_index;
+     uint32 random;
+   } PrivateKeyInfo;
+
+   opaque subgroup<V>;
+
+   The extension is a byte string containing a PrivateKeyInfo struct,
+   which has been encrypted with the AEAD from the subgroup's
+   ciphersuite:
+
+   nonce is sampled at random
+   subgroup = nonce || AEAD.Seal(key, nonce, "", PrivateKeyInfo)
+
+4.  Small-Space PRP
+
+   A small-space pseudorandom permutation (PRP) is a cryptographic
+   algorithm that works similar to a block cipher, while also being able
+   to adhere to format constraints.  In particular, it is able to create
+   psuedorandom permutations over a smaller input and output space.
+
+   This document uses the FF1 mode from [NIST] over the input/output
+   space of 32-bit integers.
+
+5.  Security Considerations
+
+   TODO Security
+
+6.  IANA Considerations
+
+   This document has no IANA actions.
+
+   *  Label "Subgroup Secret Tree", "Subgroup KeyPackage", "Subgroup
+      LeafNode"
+
+   *  Extension "subgroup"
+
+7.  Normative References
+
+   [NIST]     Dworkin, M., "Recommendation for Block Cipher Modes of
+              Operation: Methods for Format-Preserving Encryption",
+              n.d.,
+              <https://nvlpubs.nist.gov/nistpubs/SpecialPublications/
+              NIST.SP.800-38G.pdf>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/rfc/rfc2119>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/rfc/rfc8174>.
+
+   [RFC9420]  Barnes, R., Beurdouche, B., Robert, R., Millican, J.,
+              Omara, E., and K. Cohn-Gordon, "The Messaging Layer
+              Security (MLS) Protocol", RFC 9420, DOI 10.17487/RFC9420,
+              July 2023, <https://www.rfc-editor.org/rfc/rfc9420>.
+
+Acknowledgments
+
+   TODO acknowledge.
+
+Author's Address
+
+   Brendan McMillion
+   Email: brendanmcmillion@gmail.com
