@@ -338,6 +338,20 @@ in the subgroup before the new device joined externally can determine whether to
 use the new or old subgroup extension key by checking whether the new or old
 credential is in the relevant LeafNode.
 
+# Aligning Security of Groups
+
+Subgroups deprive supergroup members of visibility into whether key rotation is
+happening on a regular basis, and the extent to which compromised devices may
+have access to group secrets. As such, subgroups need to manage this themselves.
+
+A subgroup MUST have either the same or a stronger policy on how frequently
+devices must update their leaf node, than the groups that the virtual client is
+a member of.
+
+Any time that a device is removed from a subgroup, an Update (or Commit with
+`path` populated) MUST be sent to all groups that the virtual client is a member
+of.
+
 # Security Considerations
 
 TODO Security
