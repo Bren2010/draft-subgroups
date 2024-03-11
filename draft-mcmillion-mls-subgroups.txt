@@ -3,9 +3,9 @@
 
 
 Messaging Layer Security                                    B. McMillion
-Internet-Draft                                             10 March 2024
+Internet-Draft                                             11 March 2024
 Intended status: Informational                                          
-Expires: 11 September 2024
+Expires: 12 September 2024
 
 
                              MLS Subgroups
@@ -52,7 +52,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 11 September 2024.
+   This Internet-Draft will expire on 12 September 2024.
 
 Copyright Notice
 
@@ -76,10 +76,15 @@ Table of Contents
      3.1.  Secret Tree
      3.2.  Private Keys
      3.3.  Subgroup Extension
-   4.  Small-Space PRP
-   5.  Security Considerations
-   6.  IANA Considerations
-   7.  Normative References
+   4.  Application Messages
+     4.1.  Small-Space PRP
+     4.2.  Reuse Guard
+   5.  Adding New Devices
+     5.1.  Synchronizing from Another Device
+     5.2.  Joining Externally
+   6.  Security Considerations
+   7.  IANA Considerations
+   8.  Normative References
    Acknowledgments
    Author's Address
 
@@ -115,7 +120,8 @@ Table of Contents
    Device:  A user interface for messaging, performing encryption as
       needed.
 
-   User:  A (normally) human operator of a device.
+   User:  A (normally) human operator of a device.  Users may have many
+      devices, but a device only belongs to one user.
 
    Subgroup:  An MLS group whose membership is exactly the set of
       authorized devices of a single user.
@@ -148,7 +154,8 @@ Table of Contents
    root of the Secret Tree is an exported secret from a given epoch of a
    subgroup:
 
-subgroup_secret_tree_root = MLS-Exporter("Subgroup Secret Tree", "", KDF.Nh)
+   subgroup_secret_tree_root
+       = MLS-Exporter("Subgroup Secret Tree", "", KDF.Nh)
 
    The left and right child of a node in the Secret Tree are computed as
    follows:
@@ -164,8 +171,8 @@ subgroup_secret_tree_root = MLS-Exporter("Subgroup Secret Tree", "", KDF.Nh)
 
    The Secret Tree maps bit strings to a value of size KDF.Nh.  The
    root, subgroup_secret_tree_root, is the value associated with the
-   empty bit string.  The left child is the value associated with the
-   bit string "0", while the right child is the value associated with
+   empty bit string.  Its left child is the value associated with the
+   bit string "0", while its right child is the value associated with
    the bit string "1", and so on recursively.
 
    Devices follow a strict deletion schedule, and delete any node as
@@ -201,14 +208,17 @@ subgroup_secret_tree_root = MLS-Exporter("Subgroup Secret Tree", "", KDF.Nh)
    according to [RFC9420].
 
    Individual devices MUST take care to avoid reusing random values.
+   Note that the Secret Tree nodes are computed with the subgroup
+   ciphersuite's algorithms, but init_secret and leaf_secret are
+   computed with the supergroup ciphersuite's algorithms.
 
 3.3.  Subgroup Extension
 
    As mentioned, devices may not always be immediately aware of when
    another device has generated a private key.  This means that devices
-   must have a way to communicate to each other the information they
-   used to derive a private key.  The subgroup extension in a KeyPackage
-   or LeafNode provides this information:
+   need a way to communicate to each other the information they used to
+   derive a private key.  The subgroup extension in a KeyPackage or
+   LeafNode provides this information:
 
    struct {
      uint64 epoch;
@@ -225,30 +235,173 @@ subgroup_secret_tree_root = MLS-Exporter("Subgroup Secret Tree", "", KDF.Nh)
    nonce is sampled at random
    subgroup = nonce || AEAD.Seal(key, nonce, "", PrivateKeyInfo)
 
-4.  Small-Space PRP
+   The epoch field is the epoch of the subgroup that was used,
+   leaf_index is the index of the device's leaf in the subgroup, and
+   random is the random value chosen by the device during generation.
+
+   The key used for encryption is fixed long-term and shared among the
+   devices in a subgroup.
+
+4.  Application Messages
+
+   Given that MLS generates the encryption keys and nonces for
+   application and handshake messages sequentially, but a virtual client
+   may send messages from several devices simultaneously, devices must
+   take care to avoid reusing encryption keys and nonces.
+
+   If two devices encrypt a message with the same key simultaneously,
+   they will have already deleted the encryption key by the time they
+   receive the other's message, which will cause a decryption failure.
+   This is a functional issue that devices can coordinate with the
+   Delivery Service to prevent.
+
+   If two devices encrypt a message with the same key and nonce
+   simultaneously, this could compromise the message's confidentiality
+   and integrity.  Devices prevent this by ensuring two devices in a
+   subgroup never choose the same reuse_guard.
+
+4.1.  Small-Space PRP
 
    A small-space pseudorandom permutation (PRP) is a cryptographic
    algorithm that works similar to a block cipher, while also being able
    to adhere to format constraints.  In particular, it is able to create
-   psuedorandom permutations over a smaller input and output space.
+   perform a psuedorandom permutation over an arbitrary input and output
+   space.
 
-   This document uses the FF1 mode from [NIST] over the input/output
-   space of 32-bit integers.
+   This document uses the FF1 mode from [NIST] with the input-output
+   space of 32-bit integers, instantiated with AES-128.
 
-5.  Security Considerations
+   output = SmallSpacePRP.Encrypt(key, input)
+   input = SmallSpacePRP.Decrypt(key, output)
+
+4.2.  Reuse Guard
+
+   In the unmodified MLS protocol, the reuse_guard is chosen randomly.
+   In the Subgroups protocol, devices choose a random value x such that
+   x modulo the number of leaves in the subgroup is equal to its
+   leaf_index.  They then calculate:
+
+prp_key = ExpandWithLabel(key_schedule_nonce, "reuse guard", leaf_secret, 16)
+reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
+
+   ExpandWithLabel is computed with the subgroup ciphersuite's
+   algorithms. key_schedule_nonce is the nonce provided by the key
+   schedule for encrypting this message, and leaf_secret is the secret
+   corresponding to the virtual client's LeafNode in the supergroup.
+
+5.  Adding New Devices
+
+   When a user adds a new authorized device to their account, there are
+   several pieces of cryptographic state that need to be synchronized
+   before the device can start sending and receiving messages.  The
+   device can either get this state from another one of the user's
+   devices, or if all of the user's other devices are offline, the
+   device can use a series of external joins to prepare itself.
+
+5.1.  Synchronizing from Another Device
+
+   If the new device is being added by another online device, this
+   device sends a Welcome message to the new device, adding the new
+   device to the subgroup, that contains a new_device_state extension in
+   the GroupInfo:
+
+   opaque MLSState<V>;
+
+   enum {
+     reserved(0),
+     empty(1),
+     present(2),
+   } SecretTreeNodeType;
+
+   struct {
+     SecretTreeNodeType node_type;
+     select(SecretTreeNode.node_type) {
+       case empty:
+         SecretTreeNode left;
+         SecretTreeNode right;
+       case present:
+         opaque value<V>;
+     }
+   } SecretTreeNode;
+
+   struct {
+     uint64 epoch;
+     SecretTreeNode root;
+   } EpochSecretTree;
+
+   struct {
+     KeyPackageRef ref;
+     opaque init_secret<V>;
+     opaque leaf_secret<V>;
+   } KeyPackageKey;
+
+   struct {
+     opaque signature_private_key<V>;
+     opaque subgroup_extension_key<V>;
+     EpochSecretTree secret_trees<V>;
+     KeyPackageKey key_package_keys<V>;
+     MLSState group_states<V>;
+   } NewDeviceState;
+
+   The signature_private_key contains the serialized signature private
+   key of the virtual client.  Every device and virtual client SHOULD
+   have distinct signature keys.  The subgroup_extension_key is the
+   encryption key for the subgroup extension (Section 3.3).  The
+   secret_trees array contains the serialized Secret Trees for any
+   epochs where they may still be necessary.  The key_package_keys array
+   contains the init_secret and leaf_secret for any KeyPackages that are
+   still unused but have been purged from the Secret Tree.  And finally,
+   the group_states array contains the cryptographic states of all the
+   groups that the virtual client is a member of, serialized in an
+   application-specific way.
+
+5.2.  Joining Externally
+
+   Without another online device to bootstrap from, the new device can
+   follow these steps to join externally:
+
+   1.  Issue a credential for the virtual client with a new signature
+       key and generate a new subgroup extension key.
+
+   2.  Perform an External Join to the subgroup.  Send an application
+       message containing a ResyncMessage to the subgroup with the new
+       keys.
+
+   3.  Replace all unused KeyPackages with new KeyPackages, generated
+       from the new subgroup epoch.
+
+   4.  Perform an External Join to all of the groups that the virtual
+       client is a member of, using LeafNodes generated from the new
+       subgroup epoch.  Welcome messages which were unprocessed by the
+       offline devices are discarded, and these groups are Externally
+       Joined instead (potentially being queued for user approval
+       first).
+
+   struct {
+     opaque signature_private_key<V>;
+     opaque subgroup_extension_key<V>;
+   } ResyncMessage;
+
+   Note that this involves changing the subgroup extension key.  Devices
+   that were in the subgroup before the new device joined externally can
+   determine whether to use the new or old subgroup extension key by
+   checking whether the new or old credential is in the relevant
+   LeafNode.
+
+6.  Security Considerations
 
    TODO Security
 
-6.  IANA Considerations
+7.  IANA Considerations
 
    This document has no IANA actions.
 
    *  Label "Subgroup Secret Tree", "Subgroup KeyPackage", "Subgroup
       LeafNode"
 
-   *  Extension "subgroup"
+   *  Extension "subgroup", "new_device_state"
 
-7.  Normative References
+8.  Normative References
 
    [NIST]     Dworkin, M., "Recommendation for Block Cipher Modes of
               Operation: Methods for Format-Preserving Encryption",
