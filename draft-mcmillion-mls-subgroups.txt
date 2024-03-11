@@ -82,9 +82,10 @@ Table of Contents
    5.  Adding New Devices
      5.1.  Synchronizing from Another Device
      5.2.  Joining Externally
-   6.  Security Considerations
-   7.  IANA Considerations
-   8.  Normative References
+   6.  Aligning Security of Groups
+   7.  Security Considerations
+   8.  IANA Considerations
+   9.  Normative References
    Acknowledgments
    Author's Address
 
@@ -388,11 +389,26 @@ reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
    checking whether the new or old credential is in the relevant
    LeafNode.
 
-6.  Security Considerations
+6.  Aligning Security of Groups
+
+   Subgroups deprive supergroup members of visibility into whether key
+   rotation is happening on a regular basis, and the extent to which
+   compromised devices may have access to group secrets.  As such,
+   subgroups need to manage this themselves.
+
+   A subgroup MUST have either the same or a stronger policy on how
+   frequently devices must update their leaf node, than the groups that
+   the virtual client is a member of.
+
+   Any time that a device is removed from a subgroup, an Update (or
+   Commit with path populated) MUST be sent to all groups that the
+   virtual client is a member of.
+
+7.  Security Considerations
 
    TODO Security
 
-7.  IANA Considerations
+8.  IANA Considerations
 
    This document has no IANA actions.
 
@@ -401,7 +417,7 @@ reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
 
    *  Extension "subgroup", "new_device_state"
 
-8.  Normative References
+9.  Normative References
 
    [NIST]     Dworkin, M., "Recommendation for Block Cipher Modes of
               Operation: Methods for Format-Preserving Encryption",
