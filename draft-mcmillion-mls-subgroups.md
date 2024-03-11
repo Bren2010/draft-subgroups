@@ -120,7 +120,7 @@ tree_node_[N]_secret
 
 The Secret Tree maps bit strings to a value of size `KDF.Nh`. The root,
 `subgroup_secret_tree_root`, is the value associated with the empty bit string.
-The left child is the value associated with the bit string "0", while the right
+Its left child is the value associated with the bit string "0", while its right
 child is the value associated with the bit string "1", and so on recursively.
 
 Devices follow a strict deletion schedule, and delete any node as soon as:
@@ -156,14 +156,17 @@ leaf_secret = DeriveSecret(tree_node_secret, "Subgroup LeafNode")
 `leaf_node_secret` and `leaf_priv` are then derived from `leaf_secret` according
 to {{!RFC9420}}.
 
-Individual devices MUST take care to avoid reusing `random` values.
+Individual devices MUST take care to avoid reusing `random` values. Note that
+the Secret Tree nodes are computed with the subgroup ciphersuite's algorithms,
+but `init_secret` and `leaf_secret` are computed with the supergroup
+ciphersuite's algorithms.
 
 ## Subgroup Extension
 
 As mentioned, devices may not always be immediately aware of when another device
-has generated a private key. This means that devices must have a way to
-communicate to each other the information they used to derive a private key. The
-`subgroup` extension in a KeyPackage or LeafNode provides this information:
+has generated a private key. This means that devices need a way to communicate
+to each other the information they used to derive a private key. The `subgroup`
+extension in a KeyPackage or LeafNode provides this information:
 
 ~~~
 struct {
@@ -183,15 +186,61 @@ nonce is sampled at random
 subgroup = nonce || AEAD.Seal(key, nonce, "", PrivateKeyInfo)
 ~~~
 
-# Small-Space PRP
+The `epoch` field is the epoch of the subgroup that was used, `leaf_index` is
+the index of the device's leaf in the subgroup, and `random` is the random value
+chosen by the device during generation.
+
+The `key` used for encryption is fixed long-term and shared among the devices in
+a subgroup.
+
+# Application Messages
+
+Given that MLS generates the encryption keys and nonces for application and
+handshake messages sequentially, but a virtual client may send messages from
+several devices simultaneously, devices must take care to avoid reusing
+encryption keys and nonces.
+
+If two devices encrypt a message with the same key simultaneously, they will
+have already deleted the encryption key by the time they receive the other's
+message, which will cause a decryption failure. This is a functional issue that
+devices can coordinate with the Delivery Service to prevent.
+
+If two devices encrypt a message with the same key and nonce simultaneously,
+this could compromise the message's confidentiality and integrity. Devices
+prevent this by ensuring two devices in a subgroup never choose the same
+`reuse_guard`.
+
+## Small-Space PRP
 
 A small-space pseudorandom permutation (PRP) is a cryptographic algorithm that
 works similar to a block cipher, while also being able to adhere to format
-constraints. In particular, it is able to create psuedorandom permutations over
-a smaller input and output space.
+constraints. In particular, it is able to create perform a psuedorandom
+permutation over an arbitrary input and output space.
 
-This document uses the FF1 mode from {{NIST}} over the input/output space of
-32-bit integers.
+This document uses the FF1 mode from {{NIST}} with the input-output space of
+32-bit integers, instantiated with AES-128.
+
+~~~
+output = SmallSpacePRP.Encrypt(key, input)
+input = SmallSpacePRP.Decrypt(key, output)
+~~~
+
+## Reuse Guard
+
+In the unmodified MLS protocol, the `reuse_guard` is chosen randomly. In the
+Subgroups protocol, devices choose a random value `x` such that `x` modulo the
+number of leaves in the subgroup is equal to its `leaf_index`. They then
+calculate:
+
+~~~
+prp_key = ExpandWithLabel(key_schedule_nonce, "reuse guard", leaf_secret, 16)
+reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
+~~~
+
+ExpandWithLabel is computed with the subgroup ciphersuite's algorithms.
+`key_schedule_nonce` is the nonce provided by the key schedule for encrypting
+this message, and `leaf_secret` is the secret corresponding to the virtual
+client's LeafNode in the supergroup.
 
 # Security Considerations
 
