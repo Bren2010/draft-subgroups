@@ -137,10 +137,10 @@ deleted and won't be able to be re-derived, providing Forward Secrecy.
 
 Devices will need to generate either an `init_key` for a KeyPackage, or an
 `encryption_key` for a LeafNode. To do this, the device finds its leaf index in
-the subgroup `leaf_index`, chooses a random 32-bit number `random`, converts
-both to a series of bits, and concatenates them to get a series of 64 bits:
-`leaf_index || random`. This series of bits is used to lookup a node in the
-Secret Tree, `tree_node_secret`.
+the subgroup `leaf_index`, chooses a 32-bit number `random`, converts both to a
+series of bits, and concatenates them to get a series of 64 bits: `leaf_index ||
+random`. This series of bits is used to lookup a node in the Secret Tree,
+`tree_node_secret`.
 
 For a KeyPackage `init_key`, the device computes:
 
@@ -216,8 +216,8 @@ prevent this by ensuring two devices in a subgroup never choose the same
 
 A small-space pseudorandom permutation (PRP) is a cryptographic algorithm that
 works similar to a block cipher, while also being able to adhere to format
-constraints. In particular, it is able to create perform a psuedorandom
-permutation over an arbitrary input and output space.
+constraints. In particular, it is able to perform a psuedorandom permutation
+over an arbitrary input and output space.
 
 This document uses the FF1 mode from {{NIST}} with the input-output space of
 32-bit integers, instantiated with AES-128.
@@ -243,6 +243,12 @@ ExpandWithLabel is computed with the subgroup ciphersuite's algorithms.
 `key_schedule_nonce` is the nonce provided by the key schedule for encrypting
 this message, and `leaf_secret` is the secret corresponding to the virtual
 client's LeafNode in the supergroup.
+
+`prp_key` is computed in a way that it is unique to the key-nonce pair and
+computable by all the devices in a subgroup (but nobody else). `reuse_guard` is
+computed in a way that it appears random to outside observers (in particular, it
+does not leak which device sent the message), but two devices will never
+generate the same value.
 
 # Adding New Devices
 
@@ -342,7 +348,8 @@ credential is in the relevant LeafNode.
 
 Subgroups deprive supergroup members of visibility into whether key rotation is
 happening on a regular basis, and the extent to which compromised devices may
-have access to group secrets. As such, subgroups need to manage this themselves.
+have access to group secrets. As such, subgroups need to enforce policies that
+manage this concern.
 
 A subgroup MUST have either the same or a stronger policy on how frequently
 devices must update their leaf node, than the groups that the virtual client is
@@ -359,10 +366,20 @@ TODO Security
 
 # IANA Considerations
 
-This document has no IANA actions.
+This document defines two new MLS Extension Types, and a new MLS Exporter Label.
 
-- Label "Subgroup Secret Tree", "Subgroup KeyPackage", "Subgroup LeafNode"
-- Extension "subgroup", "new_device_state"
+## MLS Extension Types
+
+| Value            | Name                     | Message(s) | R | Ref      |
+|:-----------------|:-------------------------|:-----------|:--|:---------|
+| 0x0006           | subgroup                 | LN, KP     | - | RFC XXXX |
+| 0x0007           | new_device_state         | GI         | - | RFC XXXX |
+
+## MLS Exporter Labels
+
+| Label                  | Recommended | Reference |
+|:-----------------------|:------------|:----------|
+| "Subgroup Secret Tree" | -           | RFC XXXX  |
 
 --- back
 
