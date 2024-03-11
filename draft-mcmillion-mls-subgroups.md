@@ -71,7 +71,8 @@ Device:
 : A user interface for messaging, performing encryption as needed.
 
 User:
-: A (normally) human operator of a device.
+: A (normally) human operator of a device. Users may have many devices, but a
+  device only belongs to one user.
 
 Subgroup:
 : An MLS group whose membership is exactly the set of authorized devices of a single user.
@@ -102,7 +103,8 @@ The Subgroups protocol uses a Secret Tree similar to {{!RFC9420}}. The root of
 the Secret Tree is an exported secret from a given epoch of a subgroup:
 
 ~~~
-subgroup_secret_tree_root = MLS-Exporter("Subgroup Secret Tree", "", KDF.Nh)
+subgroup_secret_tree_root
+    = MLS-Exporter("Subgroup Secret Tree", "", KDF.Nh)
 ~~~
 
 The left and right child of a node in the Secret Tree are computed as follows:
@@ -242,6 +244,100 @@ ExpandWithLabel is computed with the subgroup ciphersuite's algorithms.
 this message, and `leaf_secret` is the secret corresponding to the virtual
 client's LeafNode in the supergroup.
 
+# Adding New Devices
+
+When a user adds a new authorized device to their account, there are several
+pieces of cryptographic state that need to be synchronized before the device can
+start sending and receiving messages. The device can either get this state from
+another one of the user's devices, or if all of the user's other devices are
+offline, the device can use a series of external joins to prepare itself.
+
+## Synchronizing from Another Device
+
+If the new device is being added by another online device, this device sends a
+Welcome message to the new device, adding the new device to the subgroup, that
+contains a `new_device_state` extension in the GroupInfo:
+
+~~~
+opaque MLSState<V>;
+
+enum {
+  reserved(0),
+  empty(1),
+  present(2),
+} SecretTreeNodeType;
+
+struct {
+  SecretTreeNodeType node_type;
+  select(SecretTreeNode.node_type) {
+    case empty:
+      SecretTreeNode left;
+      SecretTreeNode right;
+    case present:
+      opaque value<V>;
+  }
+} SecretTreeNode;
+
+struct {
+  uint64 epoch;
+  SecretTreeNode root;
+} EpochSecretTree;
+
+struct {
+  KeyPackageRef ref;
+  opaque init_secret<V>;
+  opaque leaf_secret<V>;
+} KeyPackageKey;
+
+struct {
+  opaque signature_private_key<V>;
+  opaque subgroup_extension_key<V>;
+  EpochSecretTree secret_trees<V>;
+  KeyPackageKey key_package_keys<V>;
+  MLSState group_states<V>;
+} NewDeviceState;
+~~~
+
+The `signature_private_key` contains the serialized signature private key of the
+virtual client. Every device and virtual client SHOULD have distinct signature
+keys. The `subgroup_extension_key` is the encryption key for the subgroup
+extension ({{subgroup-extension}}). The `secret_trees` array contains the
+serialized Secret Trees for any epochs where they may still be necessary. The
+`key_package_keys` array contains the `init_secret` and `leaf_secret` for any
+KeyPackages that are still unused but have been purged from the Secret Tree. And
+finally, the `group_states` array contains the cryptographic states of all the
+groups that the virtual client is a member of, serialized in an
+application-specific way.
+
+## Joining Externally
+
+Without another online device to bootstrap from, the new device can follow these
+steps to join externally:
+
+1. Issue a credential for the virtual client with a new signature key and
+   generate a new subgroup extension key.
+2. Perform an External Join to the subgroup. Send an application message
+   containing a `ResyncMessage` to the subgroup with the new keys.
+3. Replace all unused KeyPackages with new KeyPackages, generated from the new
+   subgroup epoch.
+4. Perform an External Join to all of the groups that the virtual client is a
+   member of, using LeafNodes generated from the new subgroup epoch. Welcome
+   messages which were unprocessed by the offline devices are discarded, and
+   these groups are Externally Joined instead (potentially being queued for user
+   approval first).
+
+~~~
+struct {
+  opaque signature_private_key<V>;
+  opaque subgroup_extension_key<V>;
+} ResyncMessage;
+~~~
+
+Note that this involves changing the subgroup extension key. Devices that were
+in the subgroup before the new device joined externally can determine whether to
+use the new or old subgroup extension key by checking whether the new or old
+credential is in the relevant LeafNode.
+
 # Security Considerations
 
 TODO Security
@@ -252,7 +348,7 @@ TODO Security
 This document has no IANA actions.
 
 - Label "Subgroup Secret Tree", "Subgroup KeyPackage", "Subgroup LeafNode"
-- Extension "subgroup"
+- Extension "subgroup", "new_device_state"
 
 --- back
 
