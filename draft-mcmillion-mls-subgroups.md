@@ -153,10 +153,17 @@ For a LeafNode `encryption_key`, the device computes:
 
 ~~~
 leaf_secret = DeriveSecret(tree_node_secret, "Subgroup LeafNode")
+
+leaf_node_secret = DeriveSecret(leaf_secret, "node")
+leaf_priv, leaf_pub = KEM.DeriveKeyPair(leaf_node_secret)
 ~~~
 
-`leaf_node_secret` and `leaf_priv` are then derived from `leaf_secret` according
-to {{!RFC9420}}.
+If the LeafNode is part of a Commit message, the device also computes
+`path_secret[0]` from `leaf_secret`:
+
+~~~
+path_secret[0] = DeriveSecret(leaf_secret, "path")
+~~~
 
 Individual devices MUST take care to avoid reusing `random` values. Note that
 the Secret Tree nodes are computed with the subgroup ciphersuite's algorithms,
@@ -202,15 +209,21 @@ handshake messages sequentially, but a virtual client may send messages from
 several devices simultaneously, devices must take care to avoid reusing
 encryption keys and nonces.
 
-If two devices encrypt a message with the same key simultaneously, they will
-have already deleted the encryption key by the time they receive the other's
-message, which will cause a decryption failure. This is a functional issue that
-devices can coordinate with the Delivery Service to prevent.
+If two devices encrypt a message with the same key simultaneously, they may
+have already deleted the relevant encryption key by the time they receive the
+other device's message, which will cause a decryption failure. This is a
+functional issue, and the best solution depends on whether the Delivery Service
+is strongly or eventually consistent {{?I-D.ietf-mls-architecture}}. Devices
+communicating with a strongly consistent DS can prevent this issue by checking
+that they have processed all the messages sent to a group before sending their
+own message. Alternatively, devices communicating with an eventually consistent
+DS may simply need to retain encryption keys for a short period of time after
+use in case they are still necessary.
 
-If two devices encrypt a message with the same key and nonce simultaneously,
-this could compromise the message's confidentiality and integrity. Devices
-prevent this by ensuring two devices in a subgroup never choose the same
-`reuse_guard`.
+However, if two devices encrypt a message with both the same key and nonce
+simultaneously, this could compromise the message's confidentiality and
+integrity. Devices prevent this by ensuring two devices in a subgroup never
+choose the same `reuse_guard`.
 
 ## Small-Space PRP
 
@@ -343,6 +356,11 @@ Note that this involves changing the subgroup extension key. Devices that were
 in the subgroup before the new device joined externally can determine whether to
 use the new or old subgroup extension key by checking whether the new or old
 credential is in the relevant LeafNode.
+
+Also note that the new device learns the set of groups that the virtual client
+is a member of, including groups corresponding to unprocessed Welcome messages,
+from the Delivery Service, which has access to this information as part of
+supporting External Joins.
 
 # Aligning Security of Groups
 
