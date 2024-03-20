@@ -3,9 +3,9 @@
 
 
 Messaging Layer Security                                    B. McMillion
-Internet-Draft                                             11 March 2024
+Internet-Draft                                             20 March 2024
 Intended status: Informational                                          
-Expires: 12 September 2024
+Expires: 21 September 2024
 
 
                              MLS Subgroups
@@ -52,7 +52,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 12 September 2024.
+   This Internet-Draft will expire on 21 September 2024.
 
 Copyright Notice
 
@@ -87,7 +87,9 @@ Table of Contents
    8.  IANA Considerations
      8.1.  MLS Extension Types
      8.2.  MLS Exporter Labels
-   9.  Normative References
+   9.  References
+     9.1.  Normative References
+     9.2.  Informative References
    Acknowledgments
    Author's Address
 
@@ -207,8 +209,13 @@ Table of Contents
 
    leaf_secret = DeriveSecret(tree_node_secret, "Subgroup LeafNode")
 
-   leaf_node_secret and leaf_priv are then derived from leaf_secret
-   according to [RFC9420].
+   leaf_node_secret = DeriveSecret(leaf_secret, "node")
+   leaf_priv, leaf_pub = KEM.DeriveKeyPair(leaf_node_secret)
+
+   If the LeafNode is part of a Commit message, the device also computes
+   path_secret[0] from leaf_secret:
+
+   path_secret[0] = DeriveSecret(leaf_secret, "path")
 
    Individual devices MUST take care to avoid reusing random values.
    Note that the Secret Tree nodes are computed with the subgroup
@@ -253,15 +260,22 @@ Table of Contents
    take care to avoid reusing encryption keys and nonces.
 
    If two devices encrypt a message with the same key simultaneously,
-   they will have already deleted the encryption key by the time they
-   receive the other's message, which will cause a decryption failure.
-   This is a functional issue that devices can coordinate with the
-   Delivery Service to prevent.
+   they may have already deleted the relevant encryption key by the time
+   they receive the other device's message, which will cause a
+   decryption failure.  This is a functional issue, and the best
+   solution depends on whether the Delivery Service is strongly or
+   eventually consistent [I-D.ietf-mls-architecture].  Devices
+   communicating with a strongly consistent DS can prevent this issue by
+   checking that they have processed all the messages sent to a group
+   before sending their own message.  Alternatively, devices
+   communicating with an eventually consistent DS may simply need to
+   retain encryption keys for a short period of time after use in case
+   they are still necessary.
 
-   If two devices encrypt a message with the same key and nonce
-   simultaneously, this could compromise the message's confidentiality
-   and integrity.  Devices prevent this by ensuring two devices in a
-   subgroup never choose the same reuse_guard.
+   However, if two devices encrypt a message with both the same key and
+   nonce simultaneously, this could compromise the message's
+   confidentiality and integrity.  Devices prevent this by ensuring two
+   devices in a subgroup never choose the same reuse_guard.
 
 4.1.  Small-Space PRP
 
@@ -397,6 +411,11 @@ reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
    checking whether the new or old credential is in the relevant
    LeafNode.
 
+   Also note that the new device learns the set of groups that the
+   virtual client is a member of, including groups corresponding to
+   unprocessed Welcome messages, from the Delivery Service, which has
+   access to this information as part of supporting External Joins.
+
 6.  Aligning Security of Groups
 
    Subgroups deprive supergroup members of visibility into whether key
@@ -443,7 +462,9 @@ reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
 
                                  Table 2
 
-9.  Normative References
+9.  References
+
+9.1.  Normative References
 
    [NIST]     Dworkin, M., "Recommendation for Block Cipher Modes of
               Operation: Methods for Format-Preserving Encryption",
@@ -464,6 +485,16 @@ reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
               Omara, E., and K. Cohn-Gordon, "The Messaging Layer
               Security (MLS) Protocol", RFC 9420, DOI 10.17487/RFC9420,
               July 2023, <https://www.rfc-editor.org/rfc/rfc9420>.
+
+9.2.  Informative References
+
+   [I-D.ietf-mls-architecture]
+              Beurdouche, B., Rescorla, E., Omara, E., Inguva, S., and
+              A. Duric, "The Messaging Layer Security (MLS)
+              Architecture", Work in Progress, Internet-Draft, draft-
+              ietf-mls-architecture-12, 3 March 2024,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-mls-
+              architecture-12>.
 
 Acknowledgments
 
