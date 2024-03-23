@@ -248,13 +248,13 @@ number of leaves in the subgroup is equal to its `leaf_index`. They then
 calculate:
 
 ~~~
-prp_key = ExpandWithLabel(key_schedule_nonce, "reuse guard", leaf_secret, 16)
+prp_key = ExpandWithLabel(key_schedule_nonce, "reuse guard", leaf_node_secret, 16)
 reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
 ~~~
 
 ExpandWithLabel is computed with the subgroup ciphersuite's algorithms.
 `key_schedule_nonce` is the nonce provided by the key schedule for encrypting
-this message, and `leaf_secret` is the secret corresponding to the virtual
+this message, and `leaf_node_secret` is the secret corresponding to the virtual
 client's LeafNode in the supergroup.
 
 `prp_key` is computed in a way that it is unique to the key-nonce pair and
