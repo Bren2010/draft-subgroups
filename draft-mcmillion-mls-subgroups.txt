@@ -3,9 +3,9 @@
 
 
 Messaging Layer Security                                    B. McMillion
-Internet-Draft                                             20 March 2024
+Internet-Draft                                             23 March 2024
 Intended status: Informational                                          
-Expires: 21 September 2024
+Expires: 24 September 2024
 
 
                              MLS Subgroups
@@ -52,7 +52,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 21 September 2024.
+   This Internet-Draft will expire on 24 September 2024.
 
 Copyright Notice
 
@@ -298,13 +298,14 @@ Table of Contents
    x modulo the number of leaves in the subgroup is equal to its
    leaf_index.  They then calculate:
 
-prp_key = ExpandWithLabel(key_schedule_nonce, "reuse guard", leaf_secret, 16)
+prp_key = ExpandWithLabel(key_schedule_nonce, "reuse guard", leaf_node_secret, 16)
 reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
 
    ExpandWithLabel is computed with the subgroup ciphersuite's
    algorithms. key_schedule_nonce is the nonce provided by the key
-   schedule for encrypting this message, and leaf_secret is the secret
-   corresponding to the virtual client's LeafNode in the supergroup.
+   schedule for encrypting this message, and leaf_node_secret is the
+   secret corresponding to the virtual client's LeafNode in the
+   supergroup.
 
    prp_key is computed in a way that it is unique to the key-nonce pair
    and computable by all the devices in a subgroup (but nobody else).
@@ -492,9 +493,9 @@ reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
               Beurdouche, B., Rescorla, E., Omara, E., Inguva, S., and
               A. Duric, "The Messaging Layer Security (MLS)
               Architecture", Work in Progress, Internet-Draft, draft-
-              ietf-mls-architecture-12, 3 March 2024,
+              ietf-mls-architecture-13, 22 March 2024,
               <https://datatracker.ietf.org/doc/html/draft-ietf-mls-
-              architecture-12>.
+              architecture-13>.
 
 Acknowledgments
 
