@@ -1180,6 +1180,9 @@ device the user sent a message from.<a href="#section-abstract-1" class="pilcrow
               <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.4.2.2">
                 <p id="section-toc.1-1.4.2.2.1"><a href="#section-4.2" class="auto internal xref">4.2</a>.  <a href="#name-reuse-guard" class="internal xref">Reuse Guard</a></p>
 </li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.4.2.3">
+                <p id="section-toc.1-1.4.2.3.1"><a href="#section-4.3" class="auto internal xref">4.3</a>.  <a href="#name-delivery-service" class="internal xref">Delivery Service</a></p>
+</li>
             </ul>
 </li>
           <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5">
@@ -1239,18 +1242,29 @@ device the user sent a message from.<a href="#section-abstract-1" class="pilcrow
 <p id="section-1-1">MLS allows users to communicate in an end-to-end encrypted fashion but doesn't
 describe how to synchronize the operation of a user's devices. Instead,
 applications are generally expected to create distinct MLS clients for each
-device that a user has, and to ensure that all of the user's devices are added or
-removed from a group atomically. This creates some technical difficulties, as it
+device that a user has, and ensure that all of the user's devices are added and
+removed from groups atomically. This creates some technical difficulties, as it
 can be hard for other members to ensure that the group truly stays in-sync with
-each user's set of authorized devices. It also creates a privacy issue because
-the members of a group can see which device a user sent a given message from, or
-when any user changes its set of authorized devices.<a href="#section-1-1" class="pilcrow">¶</a></p>
-<p id="section-1-2">This document describes how to use an MLS group between all of a user's
-authorized devices to synchronize behavior, such that other users of the
-messaging service only see the user as a single MLS client. It does this in a
-way that preserves the Forward Secrecy and Post-Compromise Security guarantees
-of the groups that the user participates in, without requiring changes to the
-wire format of MLS.<a href="#section-1-2" class="pilcrow">¶</a></p>
+each user's set of authorized devices. It also has negative privacy implications
+for users, since group members can see which device a user sent a given message
+from and whenever any user changes their set of authorized devices.<a href="#section-1-1" class="pilcrow">¶</a></p>
+<p id="section-1-2">This document describes how to synchronize the behavior of a user's devices such
+that other users of the messaging service only see the user as a single MLS
+client. It does this by relying on an MLS group called a <strong>subgroup</strong>, of which
+only the user's authorized devices are a member, to produce shared secrets from
+which private keys and other secrets for a single MLS <strong>virtual client</strong> can be
+deterministically generated. Deterministic generation allows all of the user's
+devices to participate equally in the operation of the virtual client.<a href="#section-1-2" class="pilcrow">¶</a></p>
+<p id="section-1-3">This is done in a way that preserves the Forward Secrecy and Post-Compromise
+Security of the groups that virtual clients join. Secrets for virtual clients
+are generated such that they can be deleted once they are no longer needed.
+Secrets for virtual clients are also rotated regularly, corresponding to changes
+in the subgroup's membership, meaning that once a device is removed from a
+subgroup it also loses access to the virtual client's secret state.<a href="#section-1-3" class="pilcrow">¶</a></p>
+<p id="section-1-4">Importantly, virtual clients work without changing the wire format of MLS. This
+allows one set of clients (for example, in a federated environment) to
+unilaterally choose to use virtual clients for privacy or operational reasons,
+and still operate seamlessly with non-virtual clients from other operators.<a href="#section-1-4" class="pilcrow">¶</a></p>
 </section>
 </div>
 <div id="conventions-and-definitions">
@@ -1300,7 +1314,7 @@ device only belongs to one user.<a href="#section-2-2.4.1" class="pilcrow">¶</a
 <p id="section-3-1">When devices generate new asymmetric keypairs for a virtual client (such as a
 KeyPackage <code>init_key</code> or LeafNode <code>encryption_key</code>), they must do so in a way
 that the other devices participating in the subgroup can compute the private key
-as well. In the Subgroups protocol, a virtual client's private keys are derived
+as well. To allow this, a virtual client's private keys are derived
 deterministically from a secret exported from the most recent epoch in a
 subgroup. An extension is added to KeyPackages and LeafNodes generated this way
 to communicate to the other devices, which may not become aware of the keypair
@@ -1312,8 +1326,9 @@ signature private key is generated once and shared directly with new devices.<a 
         <h3 id="name-secret-tree">
 <a href="#section-3.1" class="section-number selfRef">3.1. </a><a href="#name-secret-tree" class="section-name selfRef">Secret Tree</a>
         </h3>
-<p id="section-3.1-1">The Subgroups protocol uses a Secret Tree similar to <span>[<a href="#RFC9420" class="cite xref">RFC9420</a>]</span>. The root of
-the Secret Tree is an exported secret from a given epoch of a subgroup:<a href="#section-3.1-1" class="pilcrow">¶</a></p>
+<p id="section-3.1-1">Virtual clients use a Secret Tree similar to <span>[<a href="#RFC9420" class="cite xref">RFC9420</a>]</span> to generate
+forward-secure shared secrets. The root of the Secret Tree is an exported secret
+from a given epoch of a subgroup:<a href="#section-3.1-1" class="pilcrow">¶</a></p>
 <div class="alignLeft art-text artwork" id="section-3.1-2">
 <pre>
 subgroup_secret_tree_root
@@ -1362,7 +1377,9 @@ child is the value associated with the bit string "1", and so on recursively.<a 
 </li>
         </ul>
 <p id="section-3.1-8">This ensures that any private keys that are derived from the Secret Tree can be
-deleted and won't be able to be re-derived, providing Forward Secrecy.<a href="#section-3.1-8" class="pilcrow">¶</a></p>
+deleted and won't be able to be re-derived once the <code>exporter_secret</code> for the
+epoch has also been deleted. Virtual clients <span class="bcp14">MUST</span> ensure that <code>exporter_secret</code>
+is deleted as soon as possible.<a href="#section-3.1-8" class="pilcrow">¶</a></p>
 </section>
 </div>
 <div id="private-keys">
@@ -1373,7 +1390,7 @@ deleted and won't be able to be re-derived, providing Forward Secrecy.<a href="#
 <p id="section-3.2-1">Devices will need to generate either an <code>init_key</code> for a KeyPackage, or an
 <code>encryption_key</code> for a LeafNode. To do this, the device finds its leaf index in
 the subgroup <code>leaf_index</code>, chooses a 32-bit number <code>random</code>, converts both to a
-series of bits, and concatenates them to get a series of 64 bits: <code>leaf_index ||
+series of bits in big endian byte order, and concatenates them to get a series of 64 bits: <code>leaf_index ||
 random</code>. This series of bits is used to lookup a node in the Secret Tree,
 <code>tree_node_secret</code>.<a href="#section-3.2-1" class="pilcrow">¶</a></p>
 <p id="section-3.2-2">For a KeyPackage <code>init_key</code>, the device computes:<a href="#section-3.2-2" class="pilcrow">¶</a></p>
@@ -1449,22 +1466,12 @@ a subgroup.<a href="#section-3.3-6" class="pilcrow">¶</a></p>
       </h2>
 <p id="section-4-1">Given that MLS generates the encryption keys and nonces for application and
 handshake messages sequentially, but a virtual client may send messages from
-several devices simultaneously, devices must take care to avoid reusing
-encryption keys and nonces.<a href="#section-4-1" class="pilcrow">¶</a></p>
-<p id="section-4-2">If two devices encrypt a message with the same key simultaneously, they may
-have already deleted the relevant encryption key by the time they receive the
-other device's message, which will cause a decryption failure. This is a
-functional issue, and the best solution depends on whether the Delivery Service
-is strongly or eventually consistent <span>[<a href="#I-D.ietf-mls-architecture" class="cite xref">I-D.ietf-mls-architecture</a>]</span>. Devices
-communicating with a strongly consistent DS can prevent this issue by checking
-that they have processed all the messages sent to a group before sending their
-own message. Alternatively, devices communicating with an eventually consistent
-DS may simply need to retain encryption keys for a short period of time after
-use in case they are still necessary.<a href="#section-4-2" class="pilcrow">¶</a></p>
-<p id="section-4-3">However, if two devices encrypt a message with both the same key and nonce
-simultaneously, this could compromise the message's confidentiality and
-integrity. Devices prevent this by ensuring two devices in a subgroup never
-choose the same <code>reuse_guard</code>.<a href="#section-4-3" class="pilcrow">¶</a></p>
+several devices simultaneously, this can create a situation where encryption
+keys and nonces are reused inappropriately. Critically, if two devices encrypt a
+message with both the same key and nonce simultaneously, this could compromise
+the message's confidentiality and integrity. Devices prevent this by ensuring
+two devices in a subgroup never choose the same <code>reuse_guard</code>, as described
+below.<a href="#section-4-1" class="pilcrow">¶</a></p>
 <div id="small-space-prp">
 <section id="section-4.1">
         <h3 id="name-small-space-prp">
@@ -1489,25 +1496,51 @@ input = SmallSpacePRP.Decrypt(key, output)
         <h3 id="name-reuse-guard">
 <a href="#section-4.2" class="section-number selfRef">4.2. </a><a href="#name-reuse-guard" class="section-name selfRef">Reuse Guard</a>
         </h3>
-<p id="section-4.2-1">In the unmodified MLS protocol, the <code>reuse_guard</code> is chosen randomly. In the
-Subgroups protocol, devices choose a random value <code>x</code> such that <code>x</code> modulo the
-number of leaves in the subgroup is equal to its <code>leaf_index</code>. They then
-calculate:<a href="#section-4.2-1" class="pilcrow">¶</a></p>
+<p id="section-4.2-1">MLS clients typically generate the bytes for the <code>reuse_guard</code> randomly. Virtual
+clients, however, choose a random value <code>x</code> such that <code>x</code> modulo the number of
+leaves in the subgroup is equal to its <code>leaf_index</code>. They then calculate:<a href="#section-4.2-1" class="pilcrow">¶</a></p>
 <div class="alignLeft art-text artwork" id="section-4.2-2">
 <pre>
-prp_key = ExpandWithLabel(key_schedule_nonce, "reuse guard", leaf_node_secret, 16)
+prp_key = ExpandWithLabel(leaf_node_secret, "reuse guard", key_schedule_nonce, 16)
 reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
 </pre><a href="#section-4.2-2" class="pilcrow">¶</a>
 </div>
 <p id="section-4.2-3">ExpandWithLabel is computed with the subgroup ciphersuite's algorithms.
-<code>key_schedule_nonce</code> is the nonce provided by the key schedule for encrypting
-this message, and <code>leaf_node_secret</code> is the secret corresponding to the virtual
-client's LeafNode in the supergroup.<a href="#section-4.2-3" class="pilcrow">¶</a></p>
+<code>leaf_node_secret</code> is the secret corresponding to the virtual client's LeafNode
+in the supergroup and <code>key_schedule_nonce</code> is the nonce provided by the key
+schedule for encrypting this message.<a href="#section-4.2-3" class="pilcrow">¶</a></p>
 <p id="section-4.2-4"><code>prp_key</code> is computed in a way that it is unique to the key-nonce pair and
 computable by all the devices in a subgroup (but nobody else). <code>reuse_guard</code> is
 computed in a way that it appears random to outside observers (in particular, it
 does not leak which device sent the message), but two devices will never
 generate the same value.<a href="#section-4.2-4" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="delivery-service">
+<section id="section-4.3">
+        <h3 id="name-delivery-service">
+<a href="#section-4.3" class="section-number selfRef">4.3. </a><a href="#name-delivery-service" class="section-name selfRef">Delivery Service</a>
+        </h3>
+<p id="section-4.3-1">The method discussed above for computing <code>reuse_guard</code> prevents the devices in a
+subgroup from ever reusing the same key-nonce pair, as this would compromise the
+message. However, it does not prevent multiple devices from attempting to
+encrypt messages with the same key but different nonces. While this doesn't
+create any security issues, it is a functionality issue due to the MLS deletion
+schedule. Other group members will delete the encryption key after using it to
+decrypt the first message they receive and will be unable to decrypt subsequent
+messages.<a href="#section-4.3-1" class="pilcrow">¶</a></p>
+<p id="section-4.3-2">The best solution depends on whether the Delivery Service is strongly or
+eventually consistent <span>[<a href="#I-D.ietf-mls-architecture" class="cite xref">I-D.ietf-mls-architecture</a>]</span>. Devices communicating with
+a strongly-consistent DS can prevent this issue by checking that they have
+processed all the messages sent to a group before sending their own message.
+Alternatively, devices communicating with an eventually-consistent DS may need
+to simply retain messages and encryption keys for a short period of time after
+sending, in case it becomes necessary to decrypt another device's message and
+re-encrypt and re-send their original message with another encryption key.<a href="#section-4.3-2" class="pilcrow">¶</a></p>
+<p id="section-4.3-3">Note that, in both cases, it's assumed that when a message is sent by a virtual
+client, all devices associated with the virtual client (except possibly the
+sending device) receive the message back from the DS. This may require a change
+in the implementation of the DS.<a href="#section-4.3-3" class="pilcrow">¶</a></p>
 </section>
 </div>
 </section>
