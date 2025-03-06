@@ -1,4 +1,4 @@
 # License
 
 See the
-[guidelines for contributions](https://github.com/Bren2010/draft-subgroups/blob//CONTRIBUTING.md).
+[guidelines for contributions](https://github.com/Bren2010/draft-subgroups/blob/main/CONTRIBUTING.md).
