@@ -49,19 +49,32 @@ device the user sent a message from.
 MLS allows users to communicate in an end-to-end encrypted fashion but doesn't
 describe how to synchronize the operation of a user's devices. Instead,
 applications are generally expected to create distinct MLS clients for each
-device that a user has, and to ensure that all of the user's devices are added or
-removed from a group atomically. This creates some technical difficulties, as it
+device that a user has, and ensure that all of the user's devices are added and
+removed from groups atomically. This creates some technical difficulties, as it
 can be hard for other members to ensure that the group truly stays in-sync with
-each user's set of authorized devices. It also creates a privacy issue because
-the members of a group can see which device a user sent a given message from, or
-when any user changes its set of authorized devices.
+each user's set of authorized devices. It also has negative privacy implications
+for users, since group members can see which device a user sent a given message
+from and whenever any user changes their set of authorized devices.
 
-This document describes how to use an MLS group between all of a user's
-authorized devices to synchronize behavior, such that other users of the
-messaging service only see the user as a single MLS client. It does this in a
-way that preserves the Forward Secrecy and Post-Compromise Security guarantees
-of the groups that the user participates in, without requiring changes to the
-wire format of MLS.
+This document describes how to synchronize the behavior of a user's devices such
+that other users of the messaging service only see the user as a single MLS
+client. It does this by relying on an MLS group called a **subgroup**, of which
+only the user's authorized devices are a member, to produce shared secrets from
+which private keys and other secrets for a single MLS **virtual client** can be
+deterministically generated. Deterministic generation allows all of the user's
+devices to participate equally in the operation of the virtual client.
+
+This is done in a way that preserves the Forward Secrecy and Post-Compromise
+Security of the groups that virtual clients join. Secrets for virtual clients
+are generated such that they can be deleted once they are no longer needed.
+Secrets for virtual clients are also rotated regularly, corresponding to changes
+in the subgroup's membership, meaning that once a device is removed from a
+subgroup it also loses access to the virtual client's secret state.
+
+Importantly, virtual clients work without changing the wire format of MLS. This
+allows one set of clients (for example, in a federated environment) to
+unilaterally choose to use virtual clients for privacy or operational reasons,
+and still operate seamlessly with non-virtual clients from other operators.
 
 # Conventions and Definitions
 
@@ -88,7 +101,7 @@ Supergroup:
 When devices generate new asymmetric keypairs for a virtual client (such as a
 KeyPackage `init_key` or LeafNode `encryption_key`), they must do so in a way
 that the other devices participating in the subgroup can compute the private key
-as well. In the Subgroups protocol, a virtual client's private keys are derived
+as well. To allow this, a virtual client's private keys are derived
 deterministically from a secret exported from the most recent epoch in a
 subgroup. An extension is added to KeyPackages and LeafNodes generated this way
 to communicate to the other devices, which may not become aware of the keypair
@@ -99,8 +112,9 @@ signature private key is generated once and shared directly with new devices.
 
 ## Secret Tree
 
-The Subgroups protocol uses a Secret Tree similar to {{!RFC9420}}. The root of
-the Secret Tree is an exported secret from a given epoch of a subgroup:
+Virtual clients use a Secret Tree similar to {{!RFC9420}} to generate
+forward-secure shared secrets. The root of the Secret Tree is an exported secret
+from a given epoch of a subgroup:
 
 ~~~
 subgroup_secret_tree_root
@@ -131,14 +145,16 @@ Devices follow a strict deletion schedule, and delete any node as soon as:
 - a private key has been derived from the node.
 
 This ensures that any private keys that are derived from the Secret Tree can be
-deleted and won't be able to be re-derived, providing Forward Secrecy.
+deleted and won't be able to be re-derived once the `exporter_secret` for the
+epoch has also been deleted. Virtual clients MUST ensure that `exporter_secret`
+is deleted as soon as possible.
 
 ## Private Keys
 
 Devices will need to generate either an `init_key` for a KeyPackage, or an
 `encryption_key` for a LeafNode. To do this, the device finds its leaf index in
 the subgroup `leaf_index`, chooses a 32-bit number `random`, converts both to a
-series of bits, and concatenates them to get a series of 64 bits: `leaf_index ||
+series of bits in big endian byte order, and concatenates them to get a series of 64 bits: `leaf_index ||
 random`. This series of bits is used to lookup a node in the Secret Tree,
 `tree_node_secret`.
 
@@ -202,28 +218,19 @@ chosen by the device during generation.
 The `key` used for encryption is fixed long-term and shared among the devices in
 a subgroup.
 
+<!-- TODO: Provide for signing key and `key` rotation -->
+
+
 # Application Messages
 
 Given that MLS generates the encryption keys and nonces for application and
 handshake messages sequentially, but a virtual client may send messages from
-several devices simultaneously, devices must take care to avoid reusing
-encryption keys and nonces.
-
-If two devices encrypt a message with the same key simultaneously, they may
-have already deleted the relevant encryption key by the time they receive the
-other device's message, which will cause a decryption failure. This is a
-functional issue, and the best solution depends on whether the Delivery Service
-is strongly or eventually consistent {{?I-D.ietf-mls-architecture}}. Devices
-communicating with a strongly consistent DS can prevent this issue by checking
-that they have processed all the messages sent to a group before sending their
-own message. Alternatively, devices communicating with an eventually consistent
-DS may simply need to retain encryption keys for a short period of time after
-use in case they are still necessary.
-
-However, if two devices encrypt a message with both the same key and nonce
-simultaneously, this could compromise the message's confidentiality and
-integrity. Devices prevent this by ensuring two devices in a subgroup never
-choose the same `reuse_guard`.
+several devices simultaneously, this can create a situation where encryption
+keys and nonces are reused inappropriately. Critically, if two devices encrypt a
+message with both the same key and nonce simultaneously, this could compromise
+the message's confidentiality and integrity. Devices prevent this by ensuring
+two devices in a subgroup never choose the same `reuse_guard`, as described
+below.
 
 ## Small-Space PRP
 
@@ -242,26 +249,50 @@ input = SmallSpacePRP.Decrypt(key, output)
 
 ## Reuse Guard
 
-In the unmodified MLS protocol, the `reuse_guard` is chosen randomly. In the
-Subgroups protocol, devices choose a random value `x` such that `x` modulo the
-number of leaves in the subgroup is equal to its `leaf_index`. They then
-calculate:
+MLS clients typically generate the bytes for the `reuse_guard` randomly. Virtual
+clients, however, choose a random value `x` such that `x` modulo the number of
+leaves in the subgroup is equal to its `leaf_index`. They then calculate:
 
 ~~~
-prp_key = ExpandWithLabel(key_schedule_nonce, "reuse guard", leaf_node_secret, 16)
+prp_key = ExpandWithLabel(leaf_node_secret, "reuse guard", key_schedule_nonce, 16)
 reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
 ~~~
 
 ExpandWithLabel is computed with the subgroup ciphersuite's algorithms.
-`key_schedule_nonce` is the nonce provided by the key schedule for encrypting
-this message, and `leaf_node_secret` is the secret corresponding to the virtual
-client's LeafNode in the supergroup.
+`leaf_node_secret` is the secret corresponding to the virtual client's LeafNode
+in the supergroup and `key_schedule_nonce` is the nonce provided by the key
+schedule for encrypting this message.
 
 `prp_key` is computed in a way that it is unique to the key-nonce pair and
 computable by all the devices in a subgroup (but nobody else). `reuse_guard` is
 computed in a way that it appears random to outside observers (in particular, it
 does not leak which device sent the message), but two devices will never
 generate the same value.
+
+## Delivery Service
+
+The method discussed above for computing `reuse_guard` prevents the devices in a
+subgroup from ever reusing the same key-nonce pair, as this would compromise the
+message. However, it does not prevent multiple devices from attempting to
+encrypt messages with the same key but different nonces. While this doesn't
+create any security issues, it is a functionality issue due to the MLS deletion
+schedule. Other group members will delete the encryption key after using it to
+decrypt the first message they receive and will be unable to decrypt subsequent
+messages.
+
+The best solution depends on whether the Delivery Service is strongly or
+eventually consistent {{?I-D.ietf-mls-architecture}}. Devices communicating with
+a strongly-consistent DS can prevent this issue by checking that they have
+processed all the messages sent to a group before sending their own message.
+Alternatively, devices communicating with an eventually-consistent DS may need
+to simply retain messages and encryption keys for a short period of time after
+sending, in case it becomes necessary to decrypt another device's message and
+re-encrypt and re-send their original message with another encryption key.
+
+Note that, in both cases, it's assumed that when a message is sent by a virtual
+client, all devices associated with the virtual client (except possibly the
+sending device) receive the message back from the DS. This may require a change
+in the implementation of the DS.
 
 # Adding New Devices
 
