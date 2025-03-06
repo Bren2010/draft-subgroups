@@ -3,9 +3,9 @@
 
 
 Messaging Layer Security                                    B. McMillion
-Internet-Draft                                             23 March 2024
+Internet-Draft                                              6 March 2025
 Intended status: Informational                                          
-Expires: 24 September 2024
+Expires: 7 September 2025
 
 
                              MLS Subgroups
@@ -52,11 +52,11 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 24 September 2024.
+   This Internet-Draft will expire on 7 September 2025.
 
 Copyright Notice
 
-   Copyright (c) 2024 IETF Trust and the persons identified as the
+   Copyright (c) 2025 IETF Trust and the persons identified as the
    document authors.  All rights reserved.
 
    This document is subject to BCP 78 and the IETF Trust's Legal
@@ -493,9 +493,9 @@ reuse_guard = SmallSpacePRP.Encrypt(prp_key, x)
               Beurdouche, B., Rescorla, E., Omara, E., Inguva, S., and
               A. Duric, "The Messaging Layer Security (MLS)
               Architecture", Work in Progress, Internet-Draft, draft-
-              ietf-mls-architecture-13, 22 March 2024,
+              ietf-mls-architecture-15, 3 August 2024,
               <https://datatracker.ietf.org/doc/html/draft-ietf-mls-
-              architecture-13>.
+              architecture-15>.
 
 Acknowledgments
 
